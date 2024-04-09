@@ -1,7 +1,13 @@
+
 # Created 2024-04-09 mar. 13:00
-#+title: 7d.nz
 #+author: Phil. Estival
-* • [2024-04-09 mar.] Visualiser les données météo quotidiennes avec grafana :Hackathon:météo:Database:Postgres:Grafana:Orgmode:Docker:
+
+https://github.com/flintforge/hackathon-meteo
+https://7d.nz/Visualiser-les-donnees-meteo-quotidiennes-avec-grafana.html
+
+* Visualiser les données météo quotidiennes avec grafana
+:Hackathon:météo:Database:Postgres:Grafana:Orgmode:Docker:
+
 Guide d'installation pour charger et visualiser les données [[https://www.data.gouv.fr/fr/datasets/donnees-climatologiques-de-base-quotidiennes/][données
 climatologiques quotidiennes]] disponibles en open data sur
 [[https://meteo.data.gouv.fr/.][meteo.data.gouv.fr]].
@@ -10,7 +16,6 @@ climatologiques quotidiennes]] disponibles en open data sur
 
 Exemple :
 https://7d.nz/mto/public-dashboards/cff8714ba7ea45d0b866a3855fdd52a6?orgId=1
-
 
 
 - Requis : =Emacs=
@@ -734,13 +739,6 @@ copiée
   -- And drop it:
   --drop table t;
 #+end_src
-
-#+results: creer_releves
-| DROP TABLE   |
-|--------------|
-| CREATE TABLE |
-| COPY 7670    |
-
 
 Boucle de chargement des relevés par département.
 Org-mode va boucler sur lme bloc =creer-releve= déclaré ci dessous,
