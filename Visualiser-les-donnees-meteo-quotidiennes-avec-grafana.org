@@ -1,0 +1,797 @@
+# Created 2024-04-09 mar. 13:00
+#+title: 7d.nz
+#+author: Phil. Estival
+* • [2024-04-09 mar.] Visualiser les données météo quotidiennes avec grafana :Hackathon:météo:Database:Postgres:Grafana:Orgmode:Docker:
+Guide d'installation pour charger et visualiser les données [[https://www.data.gouv.fr/fr/datasets/donnees-climatologiques-de-base-quotidiennes/][données
+climatologiques quotidiennes]] disponibles en open data sur
+[[https://meteo.data.gouv.fr/.][meteo.data.gouv.fr]].
+
+[[file:./img/MTO-grafana-example.png]]
+
+Exemple :
+https://7d.nz/mto/public-dashboards/cff8714ba7ea45d0b866a3855fdd52a6?orgId=1
+
+
+
+- Requis : =Emacs=
+- recommandés : =docker-tramp= et =ob-tmux=
+
+La documentation de [[https://grafana.com/docs/grafana/][grafana]] est complète et très bien faite.
+
+Pour réaliser l'installation sans Emacs, il sera nécessaire
+d'écrire une boucle de chargement des listes de fichiers.
+
+** Installation
+*** Connexion
+
+Configuration d'une connexion par défaut
+#+begin_src elisp
+  (setq tramp-default-user-alist nil)
+  (add-to-list 'tramp-default-user-alist '("ssh" "river"))
+
+  (custom-set-variables
+   '(tramp-default-method "ssh")
+   '(tramp-default-host "river"))
+
+  (use-package docker-tramp)
+#+end_src
+
+Test de la connexion
+#+begin_src bash :results output
+  whoami; pwd; hostname
+#+end_src
+
+*** Configuration de podman/docker
+https://wiki.archlinux.org/title/Podman
+
+Le disque est configuré en ext3,
+on provisionne 15Go de disque,
+donc 5Go occupé par le système de base, Postgres et Grafana.
+
+Ajout d'un disque additionnel au système
+pour les containers podman rootless de l'utilisateur.
+#+begin_src bash
+  #echo "tmux starts"
+  mkdir -p /mnt/data/containers
+  ln -s /mnt/data/contaienrs ~/.local/share/containers/
+#+end_src
+
+Création du réseau entre les deux machines
+#+begin_src bash
+  docker network create --driver bridge MTO-net
+#+end_src
+
+Modification du registre podman
+pour spécifier le registe d'acquisition par défaut des containers.
+: unqualified-search-registries = ["docker.io"]
+
+
+: file:/ssh:-:|/sudo:-:/etc/containers/registries.conf::20
+
+ou à l'aide 
+de [[http://localhost/7d.nz/Init-org.html#org-(de)-tangle-block][org-babel-(de)-tangle-block]] pour envoyer/recevoir la configuration 🡇
+#+begin_src conf :tangle /-:|sudo::/etc/containers/registries.conf
+
+#+end_src
+
+*** Postgres
+
+Création, démmarrage, arrêt, suppresion des containers.
+#+begin_src bash
+  dk=podman
+  # dk system reset  # si nécessaire
+#+end_src
+#+begin_src bash
+  mkdir "${DATA}/postgres15" 
+#+end_src
+
+Création du container avec les données préeervées sur l'hôte
+#+begin_src bash
+  podman volume create \
+         -o device="${DATA}/postgres15" \
+         -o=o=bind \
+         postgres-data
+#+end_src
+#+begin_src bash
+  dk ps -a
+  dk rm postgres15
+#+end_src
+Démarrage du container.
+#+begin_src bash
+  dk rm postgres15;
+  dk run  \
+         --name=postgres15\
+         --net=MTO-net\
+         -p 5432:5432\
+         -e LANG=fr_FR.utf8\
+         -e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=fr-FR" \
+         -e POSTGRES_PASSWORD="$PG_PASSWORD"\
+         -v postgres-data:/var/lib/postgresql/data\
+         postgres:15-alpine
+#+end_src
+#+name; stop-postgres
+#+begin_src bash
+  dk stop postgres15 
+#+end_src
+#+name; start-postgres
+#+begin_src bash
+  dk start postgres15
+#+end_src
+
+**** Activation des logs postgres
+: file:/-:|docker:postgres15:/var/lib/postgresql/data/postgresql.conf::593
+
+*** Grafana
+Création des volumes pour persister
+les données sur l'hôte.
+#+begin_src bash
+  podman volume ls
+  ls -l ${DATA}/grafana
+  mkdir ${DATA}/grafana/{config,data,home,logs} -p  
+#+end_src
+#+begin_src bash
+  podman volume rm grafana-{config,home,data}
+#+end_src
+#+begin_src bash
+  podman volume create \
+         -o device="${DATA}"/grafana/config \
+         -o=o=bind \
+         grafana-config
+#+end_src
+#+begin_src bash
+  podman volume create \
+         -o device="${DATA}"/grafana/data \
+         -o=o=bind \
+         grafana-data
+#+end_src
+#+begin_src bash
+  podman volume create \
+         -o device="${DATA}"/grafana/home \
+         -o=o=bind \
+         grafana-home
+#+end_src
+#+begin_src bash
+  dk stop grafana;
+#+end_src
+#+begin_src bash
+  dk rm grafana;
+#+end_src
+Chiffrage des crédentiels
+#+begin_src bash
+  cd
+  mkdir ~/.enc
+  USERs=mto
+  PASS=$(openssl rand -base64 12) && echo "$PASS"
+  echo "${USERs}" >.enc/user && podman secret create "$(echo "${USERs}" | openssl enc -e -a -base64 | sed 's/[^a-zA-Z0-9]*$//')" .enc/user
+  echo "${PASS}" >.enc/pass && podman secret create "$(echo "${PASS}" | openssl enc -e -a -base64 | sed 's/[^a-zA-Z0-9]*$//')" .enc/pass
+#+end_src
+
+Démarrage du serveur local
+#+begin_src bash
+  docker run  \
+         --name=grafana\
+         --user "$(id -u)" \
+         --net=MTO-net\
+         -p 3000:3000\
+         -v ${DATA}/grafana/logs:/var/log/grafana \
+         -v grafana-data:/var/lib/grafana:U \
+         -v grafana-config:/etc/grafana \
+         -v grafana-home:/usr/share/grafana \
+         -e "GF_DEFAULT_INSTANCE_NAME=MTO" \
+         -e "GF_SERVER_ENABLE_GZIP=true" \
+         grafana/grafana-oss
+#+end_src
+sécurités additionnelles
+#+begin_src bash
+  -e "GF_LOG_MODE=console file" \
+  -e "GF_FEATURE_TOGGLES_ENABLE=publicDashboards" \
+  -e "GF_SERVER_PROTOCOL=h2" \
+  -e "GF_SECURITY_ADMIN_USER__FILE=/run/secrets/$(echo "${USERs}" | openssl enc -e -a -base64 | sed 's/[^a-zA-Z0-9]*$//')" \
+  -e "GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/$(echo "${PASS}" | openssl enc -e -a -base64 | sed 's/[^a-zA-Z0-9]*$//')" \
+#+end_src
+
+*** Connexion à la source de donnée
+#+begin_src bash :results output
+  podman inspect postgres15 |grep "IPAddress"
+#+end_src
+
+pour la fixer, car elle change au redémarrage du container
+et il faut l'indiquer à grafana pour créer
+une source de données
+
+#+begin_src bash
+  podman network disconnect MTO-net postgres15
+  podman network connect podman MTO-net --ip=10.89.0.2
+#+end_src
+
+*** Configuration de Grafana
+- [[file:/ssh:-|/docker:grafana:~]]
+- [[file:/ssh:-:~/data/grafana/config.ini]]
+
+#+begin_src elisp :tangle /ssh:-:~/data/grafana/config/grafana.ini
+#+end_src
+#+begin_src bash :dir /ssh:-:|/docker:grafana:
+  podman grafana start
+#+end_src
+
+** Chargement des données Météo
+
+Exemple : https://meteo.data.gouv.fr/datasets?topic=6571f26dc009674feb726be9
+- 1950-2022
+  https://object.files.data.gouv.fr/meteofrance/data/synchro_ftp/BASE/QUOT/Q_30_previous-1950-2022_autres-parametres.csv.gz
+- 2023-2024
+  https://object.files.data.gouv.fr/meteofrance/data/synchro_ftp/BASE/QUOT/Q_30_latest-2023-2024_autres-parametres.csv.gz
+  - ~730 jours de données par stations,
+  - environ 11K lignes, 1.8Mo
+  - 1M/an pour un département
+  - 100 stations, 75 ans
+  - environ 7.5Go à prévoir
+
+*** Sources
+
+**** Téléchargement des fichiers
+Dans le container de la DB
+#+name: DataSegment
+#+begin_src bash :var ext="csv.gz" :parametres RR-T-Vent :session "0"
+  rm batch;
+  function getSegment (){
+  		for x in $(echo {01..95} 99 {971..975} {984..988}); do
+  				echo "wget $options $ftp/BASE/QUOT/Q_${x}_$1_$2.$ext;" >> batch
+  		done;
+  };
+#+end_src
+
+#+begin_src bash :session "0"
+  getSegment "previous-1950-2022" "RR-T-Vent"
+  getSegment "latest-2023-2024" "RR-T-Vent"
+  getSegment "previous-1950-2022" "autres-parametres"
+  getSegment "previous-1950-2022" "autres-parametres"
+#+end_src
+Si nécessaire (le container est sur un hôte ipv6 seul par exemple)
+: options "-4 -e use_proxy=yes -e https_proxy=$PROXY_HOST_PORT"
+
+
+#+begin_src bash
+  . batch
+#+end_src
+
+=NUM_POSTE + AAMMJJ= est la clé unique du relevé
+
+Les données Décadagro se trouvent sur =$ftp/DECADAGRO/DECADAGRO_département_serie=.
+Exemple :
+https://object.files.data.gouv.fr/meteofrance/data/synchro_ftp/BASE/DECADAGRO/DECADAGRO_01_previous-1950-2022.csv.gz
+
+Une vérification de l'intégrité des fichiers, au moyen
+de leur sha1 serait de mise [fn::Q:Est-ce que l'uuid des urls stables de data.gouv comprend un contrôle d'intégrité ?]
+
+
+
+**** Fichiers des stations
+#+begin_src bash
+  hostname;pwd; 
+#+end_src
+
+Création du fichier des stations recensées depuis 1950 présentes dans RR-T-Vents.
+On remarquera quelques changements dans l'altitude des instruments au fil des ans.
+#+begin_src bash :session "0"
+  echo "num_poste,nom_usuel,lat,lon,alti" > stations1950.csv
+  for files in $(ls Q_*previous-1950*_RR*); do
+  		echo $files;
+  		gunzip -c $files\
+  				| awk -F";" 'NR>1 { printf "%s,%s,%.6f,%.6f,%i\n",$1,$2,$3,$4,$5  }' \
+  				| uniq >> stations1950.csv
+  done;
+#+end_src
+
+**** TODO Données météos futures → API
+Pour la suite, le provisionnemenet des données actualisées se fait
+avec l'API météo France, pour alimenter avec les commandes de relevés.
+
+**** TODO Localisation des stations
+https://donneespubliques.meteofrance.fr/metadonnees_publiques/fiches/fiches.json
+
+*** Mise en route de la DB
+#+begin_src bash :session "root"
+  apt install -y pgcli postgresql-client-15 
+  dkbash postgres15;
+  createuser -P -s -e --superuser dba
+#+end_src
+*** insertion des données
+Vérification de la timezone du serveur
+#+begin_src sql
+  SELECT current_user,inet_client_addr(),current_date, current_time;
+#+end_src
+
+#+begin_src bash :session "root"
+  dpkg reconfigure tzdata
+#+end_src
+
+**** format des données
+indice de la dernière cellule dans le tableur :
+
+|  1 | NUM_POSTE | numéro Météo-France du poste sur 8 chiffres                                       |
+|  2 | NOM_USUEL | nom usuel du poste                                                                |
+|  3 | LAT       | latitude négative au sud (en degrés et millionièmes de degré)                     |
+|  4 | LON       | longitude négative à l’ouest de GREENWICH (en degrés et millionièmes de degré)    |
+|  5 | ALTI      | altitude du pied de l'abri ou du pluviomètre si pas d'abri (en m)                 |
+|  6 | AAAAMMJJ  | date de la mesure (année mois jour)                                               |
+|  7 | RR        | quantité de précipitation tombée en 24 heures                                     |
+|    |           | (de 06h FU le jour J à 06h FU le jour J+1).                                       |
+|    |           | La valeur relevée à J+1 est affectée au jour J (en mm et 1/10)                    |
+|  9 | TN        | température minimale sous abri (en °C et 1/10)                                    |
+|    |           |                                                                                   |
+| 11 | TX        | température maximale sous abri (en °C et 1/10)                                    |
+|    |           |                                                                                   |
+| 13 | HTN       | heure de TN (hhmm)                                                                |
+|    |           |                                                                                   |
+| 15 | HTX       | heure de TX (hhmm)                                                                |
+|    |           |                                                                                   |
+| 17 | TM        | moyenne quotidienne des températures horaires sous abri (en °C et 1/10)           |
+|    |           |                                                                                   |
+| 19 | TNTXM     | moyenne quotidienne (TN+TX)/2 (en °C et 1/10)                                     |
+|    |           |                                                                                   |
+| 21 | TAMPLI    | amplitude thermique quotidienne                                                   |
+|    |           | écart entre TX et TN quotidiens (TX-TN) (en °C et 1/10)                           |
+| 23 | TNSOL     | température quotidienne minimale à 10 cm au-dessus du sol (en °C et 1/10)         |
+|    |           |                                                                                   |
+| 25 | TN50      | température quotidienne minimale à 50 cm au-dessus du sol (en °C et 1/10)         |
+|    |           |                                                                                   |
+| 27 | DG        | durée de gel sous abri (T ≤ 0°C) (en mn)                                          |
+|    |           |                                                                                   |
+| 29 | FFM       | moyenne quotidienne de la force du vent moyenné sur 10 mn à 10 m (en m/s et 1/10) |
+|    |           |                                                                                   |
+| 31 | FF2M      | moyenne quotidienne de la force du vent moyenné sur 10 mn à  2 m (en m/s et 1/10) |
+|    |           |                                                                                   |
+| 33 | FXY       | maximum quotidien de la force maximale horaire du vent moyenné sur 10 mn          |
+|    |           |                                                                                   |
+|    |           | à 10 m (en m/s et 1/10)                                                           |
+|    |           |                                                                                   |
+| 35 | DXY       | direction de FXY (en rose de 360)                                                 |
+|    |           |                                                                                   |
+| 37 | HXY       | heure de FXY (hhmm)                                                               |
+|    |           |                                                                                   |
+| 39 | FXI       | maximum quotidien de la force maximale horaire du vent instantané                 |
+|    |           | à 10 m (en m/s et 1/10)                                                           |
+| 41 | DXI       | direction de FXI (en rose de 360)                                                 |
+|    |           |                                                                                   |
+| 43 | HXI       | heure de FXI (hhmm)                                                               |
+|    |           |                                                                                   |
+| 45 | FXI2      | maximum quotidien de la force maximale horaire du vent instantané                 |
+|    |           | à 2 m (en m/s et 1/10)                                                            |
+| 47 | DXI2      | direction de FXI2 (en rose de 360)                                                |
+|    |           |                                                                                   |
+| 49 | HXI2      | heure de FXI2 (hhmm)                                                              |
+|    |           |                                                                                   |
+| 51 | FXI3S     | maximum quotidien de la force maximale horaire du vent moyenné sur 3 s            |
+|    |           | à 10 m (en m/s et 1/10)                                                           |
+| 53 | DXI3S     | direction de FXI3S (en rose de 360)                                               |
+|    |           |                                                                                   |
+| 55 | HXI3S     | heure de FXI3S (hhmm)                                                             |
+
+
+A  chaque donnée est associé un code qualité (ex TQT) 
+| 9 | donnée filtrée (la donnée a passé les filtres/contrôles de premiers niveaux)                      |
+| 0 | donnée protégée (la donnée a été validée définitivement par le climatologue)                      |
+| 1 | donnée validée (la donnée a été validée par contrôle automatique ou par le climatologue)          |
+| 2 | donnée douteuse en cours de vérification (la donnée a été mise en doute par contrôle automatique) |
+
+**** creation des schemas
+
+***** Création des rôles et de la base
+#+begin_src sql :database postgres
+  --DROP DATABASE IF EXISTS METEO;
+
+  DROP ROLE IF EXISTS MTO;
+  CREATE ROLE MTO WITH
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  LOGIN
+  ENCRYPTED PASSWORD '$password';
+
+  CREATE DATABASE METEO with owner MTO
+  ENCODING = 'utf8'
+  LC_COLLATE = 'fr_FR.utf8'
+  LC_CTYPE = 'fr_FR.utf8';
+  COMMENT ON ROLE MTO IS 'default DB connexion';
+#+end_src
+
+***** Création des tables
+Une partie qui demande un peu de réflexion
+pour typer correctement les données,
+et qui peuvent faire l'objet de discussions.
+#+begin_src sql
+
+  DROP SCHEMA IF EXISTS METEO CASCADE;
+  CREATE SCHEMA IF NOT EXISTS METEO AUTHORIZATION mto;
+
+  CREATE TABLE METEO.STATION (
+  --id bigint NOT NULL DEFAULT nextval('METEO.STATION_id_seq'::regclass),
+  NUM_POSTE int4 PRIMARY KEY,
+  NOM_USUEL varchar(64) NOT NULL,
+  LAT float NOT NULL,          
+  LON float NOT NULL,          
+  ALTI int2 NOT NULL,
+  DPT numeric(2)
+  --	CONSTRAINT STATION_pk PRIMARY KEY (NUM_POSTE)
+  );
+
+  CREATE TABLE METEO.RELEVE (
+  NUM_POSTE int4 NOT NULL,
+
+  CONSTRAINT NUM_POSTE_ FOREIGN KEY (NUM_POSTE)
+  REFERENCES Meteo.STATION(NUM_POSTE) MATCH SIMPLE
+  ON UPDATE NO ACTION
+  ON DELETE NO ACTION,
+
+  AAAAMMJJ  date NOT NULL,	
+  RR        decimal(6,1),           
+  QRR     	int2, -- or https://github.com/petere/pguint
+  TN        decimal(3,1),       
+  QTN       int2,
+  HTN       time without time zone,
+  QHTN    	int2,
+  TX        decimal(3,1), 
+  QTX     	int2,
+  HTX       time without time zone,
+  QHTX    	int2,
+  TM        decimal(3,1),       
+  QTM     	int2,
+  TNTXM     decimal(3,1),       
+  QTNTXM  	int2,
+  TAMPLI    decimal(3,1),       
+  QTAMPLI 	int2,
+  TNSOL     decimal(3,1),       
+  QTNSOL  	int2,
+  TN50      decimal(3,1),       
+  QTN50   	int2,
+  DG        int2,
+  QDG     	int2,
+  FFM       decimal(4,1),
+  QFFM    	int2,
+  FF2M      decimal(4,1),
+  QFF2M 		int2,
+  FXY       int2 CHECK (FXY >= 0 and FXY<360),
+  QFXY    	int2,
+  DXY       int2 CHECK (FXY >= 0 and FXY<360),
+  QDXY    	int2,
+  HXY       time without time zone,
+  QHXY    	int2,
+  FXI       decimal(4,1),
+  QFXI    	int2,
+  DXI       int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI    	int2,
+  HXI       time without time zone,
+  QHXI    	int2,
+  FXI2      decimal(4,1),
+  QFXI2   	int2,
+  DXI2      int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI2   	int2,
+  HXI2      time without time zone,
+  QHXI2   	int2,
+  FXI3S     decimal(4,1),
+  QFXI3S  	int2,
+  DXI3S     int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI3S  	int2,
+  HXI3S     time without time zone,
+  QHXI3S  	int2,
+  PRIMARY KEY(NUM_POSTE, AAAAMMJJ)
+  );
+
+
+
+  -- attribution des rôles
+  grant select on meteo.station to mto;
+  grant select on meteo.releve to mto;
+
+
+  -- ALTER TABLE Meteo.RELEVE ADD CONSTRAINT NUM_POSTE FOREIGN KEY (NUM_POSTE)
+  -- REFERENCES Meteo.STATION (NUM_POSTE) MATCH SIMPLE
+  -- ON DELETE NO ACTION ON UPDATE NO ACTION;							
+#+end_src
+
+***** Commentaire des tables
+#+begin_src sql
+
+  COMMENT ON COLUMN Meteo.station.NUM_POSTE IS E'numéro Météo-France du poste sur 8 chiffres'																																																						;
+  COMMENT ON COLUMN Meteo.station.NOM_USUEL IS E'nom usuel du poste'																																																																		;
+  COMMENT ON COLUMN Meteo.station.LAT				IS E'latitude  négative au sud (en degrés et millionièmes de degré)'																																												;
+  COMMENT ON COLUMN Meteo.station.LON				IS E'longitude   négative à l’ouest de GREENWICH (en degrés et millionièmes de degré)'																																			;
+  COMMENT ON COLUMN Meteo.station.ALTI			IS E'altitude du pied de l\'abri ou du pluviomètre si pas d\'abri (en m)'																																										;
+  COMMENT ON COLUMN Meteo.releve.AAAAMMJJ		IS E'date de la mesure (année mois jour)'																																																										;
+  COMMENT ON COLUMN Meteo.releve.RR					IS E'quantité de précipitation tombée en 24 heures (de 06h FU le jour J à 06h FU le jour J+1). La valeur relevée à J+1 est affectée au jour J (en mm 1/10)'	;
+  COMMENT ON COLUMN Meteo.releve.TN					IS E'température minimale sous abri (en °C et 1/10)'																																																				;
+  COMMENT ON COLUMN Meteo.releve.HTN				IS E'heure de TN (hhmm)'																																																																		;
+  COMMENT ON COLUMN Meteo.releve.TX					IS E'température maximale sous abri (en °C et 1/10)'																																																				;
+  COMMENT ON COLUMN Meteo.releve.HTX				IS E'heure de TX (hhmm)'																																																																		;
+  COMMENT ON COLUMN Meteo.releve.TM					IS E'moyenne quotidienne des températures horaires sous abri (en °C et 1/10)'																																								;
+  COMMENT ON COLUMN Meteo.releve.TNTXM			IS E'moyenne quotidienne (TN+TX)/2 (en °C et 1/10)'																																																					;
+  COMMENT ON COLUMN Meteo.releve.TAMPLI			IS E'amplitude thermique quotidienne   écart entre TX et TN quotidiens (TX-TN) (en °C et 1/10)'																															;
+  COMMENT ON COLUMN Meteo.releve.TNSOL			IS E'température quotidienne minimale à 10 cm au-dessus du sol (en °C et 1/10)'																																							;
+  COMMENT ON COLUMN Meteo.releve.TN50				IS E'température quotidienne minimale à 50 cm au-dessus du sol (en °C et 1/10)'																																							;
+  COMMENT ON COLUMN Meteo.releve.DG					IS E'durée de gel sous abri (T ≤ 0°C) (en mn)'																																																							;
+  COMMENT ON COLUMN Meteo.releve.FFM				IS E'moyenne quotidienne de la force du vent moyenné sur 10 mn   à 10 m (en m/s et 1/10)'																																		;
+  COMMENT ON COLUMN Meteo.releve.FF2M				IS E'moyenne quotidienne de la force du vent moyenné sur 10 mn   à 2 m (en m/s et 1/10)'																																		;
+  COMMENT ON COLUMN Meteo.releve.FXY				IS E'maximum quotidien de la force maximale horaire du vent moyenné sur 10 mn  à 10 m (en m/s et 1/10)'																											;
+  COMMENT ON COLUMN Meteo.releve.DXY				IS E'direction de FXY (en rose de 360)'																																																											;
+  COMMENT ON COLUMN Meteo.releve.HXY				IS E'heure de FXY (hhmm)'																																																																		;
+  COMMENT ON COLUMN Meteo.releve.FXI				IS E'maximum quotidien de la force maximale horaire du vent instantané   à 10 m (en m/s et 1/10)'																														;
+  COMMENT ON COLUMN Meteo.releve.DXI				IS E'direction de FXI (en rose de 360)'																																																											;
+  COMMENT ON COLUMN Meteo.releve.HXI				IS E'heure de FXI (hhmm)'																																																																		;
+  COMMENT ON COLUMN Meteo.releve.FXI2				IS E'maximum quotidien de la force maximale horaire du vent instantané   à 2 m (en m/s et 1/10)'																														;
+  COMMENT ON COLUMN Meteo.releve.DXI2				IS E'direction de FXI2 (en rose de 360)'																																																										;
+  COMMENT ON COLUMN Meteo.releve.HXI2				IS E'heure de FXI2 (hhmm)'																																																																	;
+  COMMENT ON COLUMN Meteo.releve.FXI3S			IS E'maximum quotidien de la force maximale horaire du vent moyenné sur 3 s  à 10 m (en m/s et 1/10)'																												;
+  COMMENT ON COLUMN Meteo.releve.DXI3S			IS E'direction de FXI3S (en rose de 360)'																																																										;
+  COMMENT ON COLUMN Meteo.releve.HXI3S			IS E'heure de FXI3S (hhmm)'																																																																	;
+#+end_src
+
+***** Description de la table
+#+begin_src sql
+   --\dt meteo.releve
+  \d meteo.releve
+#+end_src
+
+***** pour altérater une contrainte:
+#+begin_src sql
+  BEGIN;
+  ALTER TABLE meteo.station DROP CONSTRAINT 'X'
+  COMMIT;
+#+end_src
+
+**** creation des stations
+A partir des statiosn recensées dans les relevés
+#+name: creer_station
+#+begin_src sql :dbuser dba :var file="/var/lib/postgresql/data/csv/stations.csv"
+  --delete from t;
+  drop table if exists t;
+  drop sequence if exists  meteo.st cascade;
+  delete from meteo.station;
+
+  CREATE SEQUENCE meteo.st
+  INCREMENT 1
+  START 1
+  MINVALUE 1
+  MAXVALUE 4294967296
+  CACHE 1;
+
+  create temporary table t (
+  NUM_POSTE int4,
+  NOM_USUEL varchar(64),
+  LAT float,          
+  LON float ,
+  ALTI int2
+  );
+
+  -- Copy from the file into it:
+  copy t (NUM_POSTE, NOM_USUEL, LAT, LON, ALTI)
+  from '$file' 
+  DELIMITER ','
+  CSV HEADER;
+
+  -- select (NUM_POSTE, AAAAMMJJ, RR, QRR, TN, QTN, hm(HTN), QHTN,
+  -- TX, QTX, hm(HTX), QHTX, TM, QTM, TNTXM, QTNTXM, TAMPLI, QTAMPLI,
+  -- TNSOL, QTNSOL, TN50, QTN50, DG, QDG, FFM, QFFM, FF2M, QFF2M,
+  -- FXY, QFXY, DXY, QDXY, hm(HXY), QHXY, FXI, QFXI, DXI, QDXI, hm(HXI),
+  -- QHXI, FXI2, QFXI2, DXI2, QDXI2, hm(HXI2), QHXI2, FXI3S, QFXI3S,
+  -- DXI3S, QDXI3S, hm(HXI3S), QHXI3S) from t limit 10;
+
+  insert into meteo.station
+  select NUM_POSTE, NOM_USUEL, LAT, LON, ALTI
+  from t;
+
+  -- And drop it:
+  --drop table t;
+#+end_src
+
+**** selection des stations
+#+begin_src sql
+  select count (*) from meteo.station;
+#+end_src
+
+#+results: 
+| count |
+|-------|
+|  2441 |
+
+#+begin_src sql
+  select * from meteo.station where num_poste=1014002;
+#+end_src
+
+#+results: 
+| num_poste | nom_usuel |       lat |   lon | alti | dpt |
+|-----------+-----------+-----------+-------+------+-----|
+|   1014002 | ARBENT    | 46.278167 | 5.669 |  534 |     |
+
+**** MÀJ des stations pour ajouter le département
+à partir du numéro de poste,
+
+#+begin_src sql
+  UPDATE meteo.station
+  SET DPT = NUM_POSTE/1000000;
+#+end_src
+
+**** insertion des relevés
+
+Conversion du format d'heure entière en temps
+#+begin_src sql
+  drop function if exists hm;
+
+  CREATE or replace FUNCTION hm(t varchar) RETURNS time AS $$
+  SELECT 
+  CASE
+  WHEN t is not NULL THEN
+  		concat(coalesce(NULLIF(left(t,-2),''),'00'),':',  right(t,2))::time
+  END
+  $$ LANGUAGE SQL;
+#+end_src
+
+Les lots
+sont copiés
+depuis les CSV
+par départements
+vers une table temporaire
+puis la table définitive.
+L'import est effectif à partir des sources
+copiée
+#+name: creer_releves
+#+begin_src sql :dbuser dba :var dpt="01"
+
+  drop table if exists t;
+  create temporary table t (
+  NUM_POSTE int4,
+  NOM_USUEL varchar(64),
+  LAT float,          
+  LON float , 
+  ALTI int2,
+  id int4 NOT NULL DEFAULT nextval('meteo.st'::regclass),
+  AAAAMMJJ  date NOT NULL,	
+  RR        decimal(6,1),           
+  QRR     	int2, -- or https://github.com/petere/pguint
+  TN        decimal(3,1),       
+  QTN       int2,
+  HTN       varchar(4),
+  QHTN    	int2,
+  TX        decimal(3,1), 
+  QTX     	int2,
+  HTX       varchar(4),
+  QHTX    	int2,
+  TM        decimal(3,1),       
+  QTM     	int2,
+  TNTXM     decimal(3,1),       
+  QTNTXM  	int2,
+  TAMPLI    decimal(3,1),       
+  QTAMPLI 	int2,
+  TNSOL     decimal(3,1),       
+  QTNSOL  	int2,
+  TN50      decimal(3,1),       
+  QTN50   	int2,
+  DG        int2,
+  QDG     	int2,
+  FFM       decimal(4,1),
+  QFFM    	int2,
+  FF2M      decimal(4,1),
+  QFF2M 		int2,
+  FXY       decimal(4,1),
+  QFXY    	int2,
+  DXY       int2 CHECK (FXY >= 0 and FXY<360),
+  QDXY    	int2,
+  HXY       varchar(4),
+  QHXY    	int2,
+  FXI       decimal(4,1),
+  QFXI    	int2,
+  DXI       int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI    	int2,
+  HXI       varchar(4),
+  QHXI    	int2,
+  FXI2      decimal(4,1),
+  QFXI2   	int2,
+  DXI2      int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI2   	int2,
+  HXI2      varchar(4),
+  QHXI2   	int2,
+  FXI3S     decimal(4,1),
+  QFXI3S  	int2,
+  DXI3S     int2 CHECK (FXY >= 0 and FXY<360),
+  QDXI3S  	int2,
+  HXI3S     varchar(4),
+  QHXI3S  	int2
+  );
+
+  -- Copy from the file into it:
+  copy t ( NUM_POSTE, NOM_USUEL, LAT, LON, ALTI, AAAAMMJJ, RR, QRR,
+  TN, QTN, HTN, QHTN, TX, QTX, HTX, QHTX, TM, QTM, TNTXM, QTNTXM,
+  TAMPLI, QTAMPLI, TNSOL, QTNSOL, TN50, QTN50, DG, QDG, FFM, QFFM,
+  FF2M, QFF2M, FXY, QFXY, DXY, QDXY, HXY, QHXY, FXI, QFXI, DXI, QDXI,
+  HXI, QHXI, FXI2, QFXI2, DXI2, QDXI2, HXI2, QHXI2, FXI3S, QFXI3S,
+  DXI3S, QDXI3S, HXI3S, QHXI3S )			 
+  --from '$file'
+  --FROM PROGRAM 'wget -O - $ftp/Q_$dpt_$file.csv.gz | gunzip'
+  FROM PROGRAM 'gunzip -c /var/lib/postgresql/data/csv/Q_$dpt_$file.csv.gz'
+  --FROM '/var/lib/postgresql/data/csv/Q_$dpt_$file.csv'
+  DELIMITER ';'
+  CSV HEADER;
+
+
+  -- select (NUM_POSTE, AAAAMMJJ, RR, QRR, TN, QTN, hm(HTN), QHTN,
+  -- TX, QTX, hm(HTX), QHTX, TM, QTM, TNTXM, QTNTXM, TAMPLI, QTAMPLI,
+  -- TNSOL, QTNSOL, TN50, QTN50, DG, QDG, FFM, QFFM, FF2M, QFF2M,
+  -- FXY, QFXY, DXY, QDXY, hm(HXY), QHXY, FXI, QFXI, DXI, QDXI, hm(HXI),
+  -- QHXI, FXI2, QFXI2, DXI2, QDXI2, hm(HXI2), QHXI2, FXI3S, QFXI3S,
+  -- DXI3S, QDXI3S, hm(HXI3S), QHXI3S) from t limit 10;
+
+
+  insert into meteo.releve
+  select NUM_POSTE, AAAAMMJJ, RR, QRR, TN, QTN, hm(HTN), QHTN,
+  TX, QTX, hm(HTX), QHTX, TM, QTM, TNTXM, QTNTXM, TAMPLI, QTAMPLI,
+  TNSOL, QTNSOL, TN50, QTN50, DG, QDG, FFM, QFFM, FF2M, QFF2M,
+  FXY, QFXY, DXY, QDXY, hm(HXY), QHXY, FXI, QFXI, DXI, QDXI, hm(HXI),
+  QHXI, FXI2, QFXI2, DXI2, QDXI2, hm(HXI2), QHXI2, FXI3S, QFXI3S,
+  DXI3S, QDXI3S, hm(HXI3S), QHXI3S
+  from t;
+
+  -- And drop it:
+  --drop table t;
+#+end_src
+
+#+results: creer_releves
+| DROP TABLE   |
+|--------------|
+| CREATE TABLE |
+| COPY 7670    |
+
+
+Boucle de chargement des relevés par département.
+Org-mode va boucler sur lme bloc =creer-releve= déclaré ci dessous,
+avec les jeux demandé indiqués en itérant sur les numéros des départements.
+
+#+name: chargementCSV2DB
+#+begin_src elisp :var periode="previous-1950-2022" dataset="RR-T-Vent"
+  (message "------INSERT meteo.releve-------")
+
+  (mapc
+   (lambda (n)
+     (setq num n)
+     ;;(org-sbe GetStation_test (file $"previous-1950-2022_RR-T-Vent.csv.gz") (dpt (format "\"%02d\"" n)))
+     (org-sbe creer_releves 
+              (file $"previous-1950-2022_RR-T-Vent")
+              (dpt (format "\"%02d\"" num)))
+     )
+   (append  (-iterate #'1+ 1 99)
+            (-iterate #'1+ 971 4)
+            (-iterate #'1+ 984 4)))
+#+end_src
+
+
+**** selection des relevés
+#+begin_src sql
+  select count(*) from meteo.releve;
+#+end_src
+|   count |
+|---------|
+| 1008172 |
+
+**** création d'un utilisateur avec des droits de séleciton seul
+#+begin_src sql :var reader_pass="$PW_READER"
+  UPDATE USER reader WITH PASSWORD $reader_pass;
+  GRANT USAGE ON SCHEMA meteo TO reader;
+  GRANT SELECT ON meteo.releve TO reader;
+  GRANT SELECT ON meteo.station TO reader;
+  ALTER ROLE reader SET search_path ='METEO'
+#+end_src
+
+*** TODO création du Dockerfile
+
+** Continuités des données à jour et prédictions
+
+L'API [[https://portail-api.meteofrance.fr][portail-api.meteofrance.fr]] fournit les données à 
+à 6mn, 1h, quotidienne, sur une période de temps donnée.
+
+https://portail-api.meteofrance.fr/web/en/api/DonneesPubliquesClimatologie
+- S'inscrire, configurer l'API
+- générer un token
+- générer un ordre de commande
+- récupérer la commande des données
+
+Ce qui peut être programmé pour le système hébergeant la base.
