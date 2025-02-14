@@ -74,8 +74,8 @@ pour spécifier le registe d'acquisition par défaut des containers.
 
 : file:/ssh:-:|/sudo:-:/etc/containers/registries.conf::20
 
-ou à l'aide 
-de [[http://localhost/7d.nz/Init-org.html#org-(de)-tangle-block][org-babel-(de)-tangle-block]] pour envoyer/recevoir la configuration 🡇
+ou à l'aide
+de [[https://7d.nz/Init-org.html#org-(de)-tangle-block][org-babel-(de)-tangle-block]] pour envoyer/recevoir la configuration 🡇
 #+begin_src conf :tangle /-:|sudo::/etc/containers/registries.conf
 
 #+end_src
@@ -88,7 +88,7 @@ Création, démmarrage, arrêt, suppresion des containers.
   # dk system reset  # si nécessaire
 #+end_src
 #+begin_src bash
-  mkdir "${DATA}/postgres15" 
+  mkdir "${DATA}/postgres15"
 #+end_src
 
 Création du container avec les données préeervées sur l'hôte
@@ -117,7 +117,7 @@ Démarrage du container.
 #+end_src
 #+name; stop-postgres
 #+begin_src bash
-  dk stop postgres15 
+  dk stop postgres15
 #+end_src
 #+name; start-postgres
 #+begin_src bash
@@ -133,7 +133,7 @@ les données sur l'hôte.
 #+begin_src bash
   podman volume ls
   ls -l ${DATA}/grafana
-  mkdir ${DATA}/grafana/{config,data,home,logs} -p  
+  mkdir ${DATA}/grafana/{config,data,home,logs} -p
 #+end_src
 #+begin_src bash
   podman volume rm grafana-{config,home,data}
@@ -274,7 +274,7 @@ de leur sha1 serait de mise [fn::Q:Est-ce que l'uuid des urls stables de data.go
 
 **** Fichiers des stations
 #+begin_src bash
-  hostname;pwd; 
+  hostname;pwd;
 #+end_src
 
 Création du fichier des stations recensées depuis 1950 présentes dans RR-T-Vents.
@@ -298,7 +298,7 @@ https://donneespubliques.meteofrance.fr/metadonnees_publiques/fiches/fiches.json
 
 *** Mise en route de la DB
 #+begin_src bash :session "root"
-  apt install -y pgcli postgresql-client-15 
+  apt install -y pgcli postgresql-client-15
   dkbash postgres15;
   createuser -P -s -e --superuser dba
 #+end_src
@@ -375,7 +375,7 @@ indice de la dernière cellule dans le tableur :
 | 55 | HXI3S     | heure de FXI3S (hhmm)                                                             |
 
 
-A  chaque donnée est associé un code qualité (ex TQT) 
+A  chaque donnée est associé un code qualité (ex TQT)
 | 9 | donnée filtrée (la donnée a passé les filtres/contrôles de premiers niveaux)                      |
 | 0 | donnée protégée (la donnée a été validée définitivement par le climatologue)                      |
 | 1 | donnée validée (la donnée a été validée par contrôle automatique ou par le climatologue)          |
@@ -416,8 +416,8 @@ et qui peuvent faire l'objet de discussions.
   --id bigint NOT NULL DEFAULT nextval('METEO.STATION_id_seq'::regclass),
   NUM_POSTE int4 PRIMARY KEY,
   NOM_USUEL varchar(64) NOT NULL,
-  LAT float NOT NULL,          
-  LON float NOT NULL,          
+  LAT float NOT NULL,
+  LON float NOT NULL,
   ALTI int2 NOT NULL,
   DPT numeric(2)
   --	CONSTRAINT STATION_pk PRIMARY KEY (NUM_POSTE)
@@ -431,26 +431,26 @@ et qui peuvent faire l'objet de discussions.
   ON UPDATE NO ACTION
   ON DELETE NO ACTION,
 
-  AAAAMMJJ  date NOT NULL,	
-  RR        decimal(6,1),           
+  AAAAMMJJ  date NOT NULL,
+  RR        decimal(6,1),
   QRR     	int2, -- or https://github.com/petere/pguint
-  TN        decimal(3,1),       
+  TN        decimal(3,1),
   QTN       int2,
   HTN       time without time zone,
   QHTN    	int2,
-  TX        decimal(3,1), 
+  TX        decimal(3,1),
   QTX     	int2,
   HTX       time without time zone,
   QHTX    	int2,
-  TM        decimal(3,1),       
+  TM        decimal(3,1),
   QTM     	int2,
-  TNTXM     decimal(3,1),       
+  TNTXM     decimal(3,1),
   QTNTXM  	int2,
-  TAMPLI    decimal(3,1),       
+  TAMPLI    decimal(3,1),
   QTAMPLI 	int2,
-  TNSOL     decimal(3,1),       
+  TNSOL     decimal(3,1),
   QTNSOL  	int2,
-  TN50      decimal(3,1),       
+  TN50      decimal(3,1),
   QTN50   	int2,
   DG        int2,
   QDG     	int2,
@@ -494,7 +494,7 @@ et qui peuvent faire l'objet de discussions.
 
   -- ALTER TABLE Meteo.RELEVE ADD CONSTRAINT NUM_POSTE FOREIGN KEY (NUM_POSTE)
   -- REFERENCES Meteo.STATION (NUM_POSTE) MATCH SIMPLE
-  -- ON DELETE NO ACTION ON UPDATE NO ACTION;							
+  -- ON DELETE NO ACTION ON UPDATE NO ACTION;
 #+end_src
 
 ***** Commentaire des tables
@@ -565,14 +565,14 @@ A partir des statiosn recensées dans les relevés
   create temporary table t (
   NUM_POSTE int4,
   NOM_USUEL varchar(64),
-  LAT float,          
+  LAT float,
   LON float ,
   ALTI int2
   );
 
   -- Copy from the file into it:
   copy t (NUM_POSTE, NOM_USUEL, LAT, LON, ALTI)
-  from '$file' 
+  from '$file'
   DELIMITER ','
   CSV HEADER;
 
@@ -596,7 +596,7 @@ A partir des statiosn recensées dans les relevés
   select count (*) from meteo.station;
 #+end_src
 
-#+results: 
+#+results:
 | count |
 |-------|
 |  2441 |
@@ -605,7 +605,7 @@ A partir des statiosn recensées dans les relevés
   select * from meteo.station where num_poste=1014002;
 #+end_src
 
-#+results: 
+#+results:
 | num_poste | nom_usuel |       lat |   lon | alti | dpt |
 |-----------+-----------+-----------+-------+------+-----|
 |   1014002 | ARBENT    | 46.278167 | 5.669 |  534 |     |
@@ -625,7 +625,7 @@ Conversion du format d'heure entière en temps
   drop function if exists hm;
 
   CREATE or replace FUNCTION hm(t varchar) RETURNS time AS $$
-  SELECT 
+  SELECT
   CASE
   WHEN t is not NULL THEN
   		concat(coalesce(NULLIF(left(t,-2),''),'00'),':',  right(t,2))::time
@@ -648,30 +648,30 @@ copiée
   create temporary table t (
   NUM_POSTE int4,
   NOM_USUEL varchar(64),
-  LAT float,          
-  LON float , 
+  LAT float,
+  LON float ,
   ALTI int2,
   id int4 NOT NULL DEFAULT nextval('meteo.st'::regclass),
-  AAAAMMJJ  date NOT NULL,	
-  RR        decimal(6,1),           
+  AAAAMMJJ  date NOT NULL,
+  RR        decimal(6,1),
   QRR     	int2, -- or https://github.com/petere/pguint
-  TN        decimal(3,1),       
+  TN        decimal(3,1),
   QTN       int2,
   HTN       varchar(4),
   QHTN    	int2,
-  TX        decimal(3,1), 
+  TX        decimal(3,1),
   QTX     	int2,
   HTX       varchar(4),
   QHTX    	int2,
-  TM        decimal(3,1),       
+  TM        decimal(3,1),
   QTM     	int2,
-  TNTXM     decimal(3,1),       
+  TNTXM     decimal(3,1),
   QTNTXM  	int2,
-  TAMPLI    decimal(3,1),       
+  TAMPLI    decimal(3,1),
   QTAMPLI 	int2,
-  TNSOL     decimal(3,1),       
+  TNSOL     decimal(3,1),
   QTNSOL  	int2,
-  TN50      decimal(3,1),       
+  TN50      decimal(3,1),
   QTN50   	int2,
   DG        int2,
   QDG     	int2,
@@ -711,7 +711,7 @@ copiée
   TAMPLI, QTAMPLI, TNSOL, QTNSOL, TN50, QTN50, DG, QDG, FFM, QFFM,
   FF2M, QFF2M, FXY, QFXY, DXY, QDXY, HXY, QHXY, FXI, QFXI, DXI, QDXI,
   HXI, QHXI, FXI2, QFXI2, DXI2, QDXI2, HXI2, QHXI2, FXI3S, QFXI3S,
-  DXI3S, QDXI3S, HXI3S, QHXI3S )			 
+  DXI3S, QDXI3S, HXI3S, QHXI3S )
   --from '$file'
   --FROM PROGRAM 'wget -O - $ftp/Q_$dpt_$file.csv.gz | gunzip'
   FROM PROGRAM 'gunzip -c /var/lib/postgresql/data/csv/Q_$dpt_$file.csv.gz'
@@ -753,7 +753,7 @@ avec les jeux demandé indiqués en itérant sur les numéros des départements.
    (lambda (n)
      (setq num n)
      ;;(org-sbe GetStation_test (file $"previous-1950-2022_RR-T-Vent.csv.gz") (dpt (format "\"%02d\"" n)))
-     (org-sbe creer_releves 
+     (org-sbe creer_releves
               (file $"previous-1950-2022_RR-T-Vent")
               (dpt (format "\"%02d\"" num)))
      )
@@ -784,7 +784,7 @@ avec les jeux demandé indiqués en itérant sur les numéros des départements.
 
 ** Continuités des données à jour et prédictions
 
-L'API [[https://portail-api.meteofrance.fr][portail-api.meteofrance.fr]] fournit les données à 
+L'API [[https://portail-api.meteofrance.fr][portail-api.meteofrance.fr]] fournit les données à
 à 6mn, 1h, quotidienne, sur une période de temps donnée.
 
 https://portail-api.meteofrance.fr/web/en/api/DonneesPubliquesClimatologie
